@@ -1,0 +1,34 @@
+﻿# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Flask / local runtime
+instance/
+*.log
+flask.stdout.log
+flask.stderr.log
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Local release output
+release/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Excel temporary files
+~$*.xlsx
+~$*.xls
+!samples/~$작성중_대변인.xlsx

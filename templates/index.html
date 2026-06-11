@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260611-dashboard-4') }}">
+</head>
+<body data-applied-count="{{ page.selected_target_count }}" data-total-targets="{{ page.available_targets|length }}">
+    <main class="app-shell">
+        <header class="topbar">
+            <a href="{{ url_for('index') }}" class="brand-block brand-link" aria-label="취합체커 메인으로 이동">
+                <div class="brand-mark">
+                    <i class="bi bi-shield-check"></i>
+                </div>
+                <div class="brand-copy">
+                    <h1>📋 취합체커</h1>
+                    <p>제출 현황을 한눈에 확인하세요.</p>
+                </div>
+            </a>
+        </header>
+
+        <div class="notice-banner">
+            <i class="bi bi-info-circle-fill"></i>
+            <span>취합대상을 선택하고 폴더를 지정한 뒤 [제출여부 검사] 버튼을 클릭하면 파일명 기준으로 제출 여부를 자동 확인합니다.</span>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="toast-area">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'info' if category == 'warning' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <form method="post" action="{{ url_for('index') }}" id="workspace-form" enctype="multipart/form-data">
+            <input type="hidden" name="target_type" id="target_type" value="{{ page.active_target_type }}">
+            <input type="hidden" name="custom_group" id="custom_group" value="{{ page.active_custom_group }}">
+            {% for target_name in page.selected_targets %}
+                <input type="hidden" name="applied_targets" value="{{ target_name }}">
+            {% endfor %}
+
+            <div class="workspace-grid">
+                <aside class="sidebar-panel">
+                    <section class="sidebar-card">
+                        <div class="section-heading">
+                            <span class="step-badge">1</span>
+                            <div>
+                                <h2>취합대상 선택</h2>
+                                <p>유형을 선택하고 대상을 체크한 뒤 적용하세요.</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-header-row">
+                            <div class="segmented-tabs" role="tablist">
+                                {% for target_type in target_types %}
+                                    <a
+                                        class="segmented-tab {% if page.active_target_type == target_type %}active{% endif %}"
+                                        href="{{ url_for('index', target_type=target_type) }}"
+                                    >
+                                        {{ target_type }}
+                                    </a>
+                                {% endfor %}
+                            </div>
+                            <button
+                                type="button"
+                                class="tab-manage-btn"
+                                data-bs-toggle="modal"
+                                data-bs-target="#groupManagementModal"
+                                aria-label="그룹 관리"
+                                title="그룹 관리"
+                            >
+                                <i class="bi bi-gear-fill"></i>
+                            </button>
+                        </div>
+
+                        {% if page.active_target_type == "내그룹" %}
+                            <div class="selection-summary">
+                                <span><strong id="registered-count">{{ page.available_targets|length }}</strong>개 대상 / <strong id="selected-count">{{ page.selected_target_count }}</strong>개 선택</span>
+                                <button type="button" class="summary-icon" id="refresh-selection-count" aria-label="선택 갱신">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+
+                            <div class="group-select-row">
+                                <div class="group-select-stack">
+                                    <label class="form-label small-label" for="custom-group-select">내그룹 선택</label>
+                                    <select
+                                        class="form-select"
+                                        id="custom-group-select"
+                                    >
+                                        <option value="" {% if not page.active_custom_group %}selected{% endif %}>
+                                            그룹을 선택하세요
+                                        </option>
+                                        {% for group_name in custom_group_names %}
+                                            <option
+                                                value="{{ group_name }}"
+                                                {% if page.active_custom_group == group_name %}selected{% endif %}
+                                            >
+                                                {{ group_name }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="target-tools compact">
+                                <div class="search-box">
+                                    <i class="bi bi-search"></i>
+                                    <input
+                                        type="search"
+                                        id="target-search"
+                                        placeholder="대상 검색"
+                                        {% if not page.active_custom_group %}disabled{% endif %}
+                                    >
+                                </div>
+                                <div class="tool-row">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="select-visible" {% if not page.active_custom_group %}disabled{% endif %}>전체선택</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-visible" {% if not page.active_custom_group %}disabled{% endif %}>전체해제</button>
+                                    <button type="button" class="btn btn-sm btn-link px-0" id="reset-selection" {% if not page.active_custom_group %}disabled{% endif %}>선택초기화</button>
+                                </div>
+                            </div>
+
+                            <div class="target-list" id="target-list">
+                                {% for target_name in page.available_targets %}
+                                    <label class="target-row" data-target-name="{{ target_name }}">
+                                        <input
+                                            class="form-check-input candidate-checkbox"
+                                            type="checkbox"
+                                            name="candidate_targets"
+                                            value="{{ target_name }}"
+                                            {% if target_name in page.selected_targets %}checked{% endif %}
+                                            {% if not page.active_custom_group %}disabled{% endif %}
+                                        >
+                                        <span>{{ target_name }}</span>
+                                    </label>
+                                {% else %}
+                                    <div class="empty-note">
+                                        {% if page.active_custom_group %}
+                                            등록된 대상이 없습니다. 오른쪽 그룹 관리에서 추가해 주세요.
+                                        {% else %}
+                                            먼저 내그룹을 선택해 주세요.
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+
+                            <button type="submit" name="action" value="apply" class="btn btn-primary w-100 apply-button" {% if not page.active_custom_group %}disabled{% endif %}>
+                                <span class="step-badge inverse">2</span>
+                                선택대상 적용
+                            </button>
+                        {% else %}
+                            <div class="selection-summary">
+                                <span><strong id="registered-count">{{ page.available_targets|length }}</strong>개 대상 / <strong id="selected-count">{{ page.selected_target_count }}</strong>개 선택</span>
+                                <button type="button" class="summary-icon" id="refresh-selection-count" aria-label="선택 갱신">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+
+                            <div class="target-tools">
+                                <div class="search-box">
+                                    <i class="bi bi-search"></i>
+                                    <input type="search" id="target-search" placeholder="대상 검색">
+                                </div>
+                                <div class="tool-row">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="select-visible">전체선택</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-visible">전체해제</button>
+                                    <button type="button" class="btn btn-sm btn-link px-0" id="reset-selection">선택초기화</button>
+                                </div>
+                            </div>
+
+                            <div class="target-list" id="target-list">
+                                {% for target_name in page.available_targets %}
+                                    <label class="target-row" data-target-name="{{ target_name }}">
+                                        <input
+                                            class="form-check-input candidate-checkbox"
+                                            type="checkbox"
+                                            name="candidate_targets"
+                                            value="{{ target_name }}"
+                                            {% if target_name in page.selected_targets %}checked{% endif %}
+                                        >
+                                        <span>{{ target_name }}</span>
+                                    </label>
+                                {% else %}
+                                    <div class="empty-note">표시할 취합대상이 없습니다.</div>
+                                {% endfor %}
+                            </div>
+
+                            <button type="submit" name="action" value="apply" class="btn btn-primary w-100 apply-button">
+                                <span class="step-badge inverse">2</span>
+                                선택대상 적용
+                            </button>
+                        {% endif %}
+
+                        <div class="tip-card">
+                            <i class="bi bi-lightbulb-fill"></i>
+                            <div>
+                                <strong>TIP</strong>
+                                <p>체크한 항목이 오른쪽 “검사 대상”에 반영됩니다.</p>
+                            </div>
+                        </div>
+                    </section>
+                </aside>
+
+                <section class="main-panel">
+                    <section class="control-strip">
+                        <div class="control-card target-card">
+                            <div class="section-heading compact">
+                                <span class="step-badge">2</span>
+                                <div>
+                                    <h3>검사 설정</h3>
+                                    <p>적용된 대상과 취합 폴더를 확인하세요.</p>
+                                </div>
+                            </div>
+
+                            <div class="target-tags">
+                                {% if page.selected_targets %}
+                                    {% for target_name in page.preview_targets %}
+                                        <span class="target-tag">{{ target_name }}</span>
+                                    {% endfor %}
+                                    {% if page.extra_target_count > 0 %}
+                                        <span class="target-tag muted">외 {{ page.extra_target_count }}개</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="empty-note">적용된 대상이 없습니다.</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="control-card folder-card-panel">
+                                <div class="folder-card-header">
+                                    <div class="section-heading compact no-bottom">
+                                        <span class="step-badge">3</span>
+                                        <div>
+                                        <h3>취합폴더</h3>
+                                        <p>폴더를 선택하거나 경로를 직접 입력해 주세요.</p>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="folder-picker-button">
+                                        <span>폴더</span><span>선택</span>
+                                    </button>
+                                </div>
+
+                            <div class="folder-picker-row">
+                                <div class="input-shell">
+                                    <i class="bi bi-folder-fill"></i>
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        id="folder_path"
+                                        name="folder_path"
+                                        value="{{ page.folder_path }}"
+                                        placeholder="폴더 경로를 입력하거나 폴더 버튼을 누르세요."
+                                    >
+                                    <input type="hidden" id="folder_files_json" name="folder_files_json" value="{{ page.folder_files_json }}">
+                                </div>
+                            </div>
+<div class="folder-status {% if page.folder_is_selected %}valid{% endif %}" id="folder-card">
+                                {% if page.folder_is_selected %}
+                                    <i class="bi bi-check-circle-fill"></i>
+                                    <div>
+                                        <strong>폴더가 선택되었습니다.</strong>
+                                        <span>선택된 폴더: {{ page.folder_path }}</span>
+                                    </div>
+                                {% else %}
+                                    <i class="bi bi-folder"></i>
+                                    <div>
+                                        <strong>폴더가 아직 선택되지 않았습니다.</strong>
+                                        <span>직접 입력하거나 폴더 아이콘 버튼을 눌러 선택해 주세요.</span>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="control-card run-card">
+                            <div class="section-heading compact">
+                                <span class="step-badge">4</span>
+                                <div>
+                                    <h3>검사 실행</h3>
+                                    <p>설정이 완료되면 제출여부 검사를 실행합니다.</p>
+                                </div>
+                            </div>
+
+                            <p class="run-note">선택된 대상 기준으로 폴더 내 파일명을 검사합니다.</p>
+                            <button
+                                type="submit"
+                                name="action"
+                                value="scan"
+                                class="btn btn-primary btn-run"
+                                id="scan-button"
+                                {% if not page.can_scan %}disabled{% endif %}
+                            >
+                                <i class="bi bi-play-fill"></i>
+                                제출여부 검사
+                            </button>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-card kpi-section">
+                        <div class="section-heading compact">
+                            <span class="step-badge">5</span>
+                            <div>
+                                <h3>결과 요약</h3>
+                                <p>검사 후 제출 현황을 한눈에 확인합니다.</p>
+                            </div>
+                        </div>
+
+                        <div class="kpi-grid">
+                            <div class="kpi-card">
+                                <span>전체 대상 수</span>
+                                <strong>{{ page.summary.total_targets }}</strong>
+                            </div>
+                            <div class="kpi-card success">
+                                <span>제출 수</span>
+                                <strong>{{ page.summary.submitted_count }}</strong>
+                            </div>
+                            <div class="kpi-card danger">
+                                <span>미제출 수</span>
+                                <strong>{{ page.summary.missing_count }}</strong>
+                            </div>
+                            <div class="kpi-card percent">
+                                <span>제출률</span>
+                                <strong>{{ "%.1f"|format(page.summary.submission_rate) }}%</strong>
+                            </div>
+                        </div>
+
+                        <div class="submission-progress">
+                            <div class="progress-head">
+                                <strong>{{ page.summary.submitted_count }} / {{ page.summary.total_targets }} 제출</strong>
+                                <span>{{ "%.1f"|format(page.summary.submission_rate) }}%</span>
+                            </div>
+                            <div class="progress" role="progressbar" aria-valuenow="{{ page.summary.submission_rate }}" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar" style="width: {{ page.summary.submission_rate }}%"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-card table-card">
+                        <div class="table-header">
+                            <div>
+                                <h3>검사 결과</h3>
+                                <p>상태, 대상, 제출파일명, 제출시간을 확인합니다.</p>
+                            </div>
+                            <button
+                                type="submit"
+                                class="btn btn-outline-secondary btn-sm"
+                                formaction="{{ url_for('download_csv') }}"
+                                formmethod="post"
+                                {% if not page.can_download %}disabled{% endif %}
+                            >
+                                <i class="bi bi-download"></i>
+                                CSV 다운로드
+                            </button>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>상태</th>
+                                        <th>대상(부서)</th>
+                                        <th>제출파일명(일부)</th>
+                                        <th>파일 개수</th>
+                                        <th>제출 시간</th>
+                                        <th>비고</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% if page.results %}
+                                        {% for row in page.results %}
+                                            <tr>
+                                                <td>
+                                                    {% if row["상태"] == "제출" %}
+                                                        <span class="status-badge submitted">제출</span>
+                                                    {% else %}
+                                                        <span class="status-badge missing">미제출</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="fw-semibold">{{ row["대상"] }}</td>
+                                                <td class="filename-cell">{{ row["제출파일명"] }}</td>
+                                                <td>{{ row["파일개수"] }}</td>
+                                                <td>{{ row["제출시간"] }}</td>
+                                                <td>{{ row["비고"] }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    {% else %}
+                                        <tr>
+                                            <td colspan="6" class="empty-table">아직 검사 결과가 없습니다. 대상과 폴더를 지정한 뒤 확인해 주세요.</td>
+                                        </tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="table-footer">
+                            <button type="button" class="pager-btn" disabled><i class="bi bi-chevron-left"></i></button>
+                            <button type="button" class="pager-page active" disabled>1</button>
+                            <button type="button" class="pager-page" disabled>2</button>
+                            <button type="button" class="pager-btn" disabled><i class="bi bi-chevron-right"></i></button>
+                        </div>
+                    </section>
+                </section>
+            </div>
+        </form>
+
+        <div class="modal fade" id="groupManagementModal" tabindex="-1" aria-hidden="true" data-state-url="{{ url_for('custom_groups.group_state_route') }}" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content management-modal">
+                    <div class="modal-header">
+                        <div>
+                            <h5 class="modal-title">그룹 관리</h5>
+                            <p class="modal-subtitle">선택 화면과 분리된 설정 영역입니다. 여기서만 그룹과 대상 데이터를 관리합니다.</p>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="management-grid">
+                            <section class="management-card management-stack">
+                                <div class="section-heading compact">
+                                    <span class="step-badge">1</span>
+                                    <div>
+                                        <h3>그룹 선택 및 관리</h3>
+                                        <p>먼저 그룹을 선택하고, 필요할 때 새 그룹을 추가하거나 수정합니다.</p>
+                                    </div>
+                                </div>
+
+                                <div class="subcard">
+                                    <div class="subcard-title">그룹 선택</div>
+                                    <label class="form-label small-label" for="modal-custom-group-select">그룹 선택</label>
+                                    <select
+                                        class="form-select"
+                                        id="modal-custom-group-select"
+                                    >
+                                        <option value="" {% if not page.active_custom_group %}selected{% endif %}>
+                                            그룹을 선택하세요
+                                        </option>
+                                        {% for group_name in custom_group_names %}
+                                            <option
+                                                value="{{ group_name }}"
+                                                {% if page.active_custom_group == group_name %}selected{% endif %}
+                                            >
+                                                {{ group_name }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="group-status-card">
+                                        <div class="group-status-label">등록 대상</div>
+                                        <div class="group-status-value">{{ page.available_targets|length }}개</div>
+                                    </div>
+                                </div>
+
+                                <div class="subcard {% if not page.active_custom_group %}is-disabled{% endif %}">
+                                    <div class="subcard-title">선택된 그룹 관리</div>
+                                                                        <div class="selected-group-name">선택된 그룹 : <strong>{{ page.active_custom_group or '그룹을 선택해 주세요' }}</strong></div>
+                                    <div class="group-management-actions">
+                                        <form method="post" action="{{ url_for('custom_groups.rename_custom_group_route') }}" class="group-action-form group-rename-form js-ajax-group-form">
+                                            <input type="hidden" name="custom_group" value="{{ page.active_custom_group }}">
+                                            <input type="text" class="form-control" name="new_group_name" value="{{ page.active_custom_group }}" placeholder="새 그룹명을 입력한 뒤 아래 버튼을 누르세요" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>
+                                            <button type="submit" class="btn btn-outline-secondary group-action-button" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>그룹명 변경</button>
+                                        </form>
+                                        <form method="post" action="{{ url_for('custom_groups.delete_custom_group_route') }}" class="group-action-form group-delete-form js-ajax-group-form">
+                                            <input type="hidden" name="custom_group" value="{{ page.active_custom_group }}">
+                                            <input type="hidden" name="delete_group_name" value="{{ page.active_custom_group }}">
+                                            <button type="submit" class="btn btn-outline-danger group-action-button" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>그룹 삭제</button>
+                                        </form>
+                                    </div>
+                                </div>
+
+                                <div class="subcard subcard-secondary">
+                                    <div class="subcard-title">새 그룹 만들기</div>
+                                    <form method="post" action="{{ url_for('custom_groups.add_custom_group_route') }}" class="stack-form js-ajax-group-form">
+                                        <input type="text" class="form-control" name="group_name" placeholder="새 그룹명을 입력하세요">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">+ 새 그룹</button>
+                                    </form>
+                                </div>
+                            </section>
+
+                            <section class="management-card {% if not page.active_custom_group %}is-disabled{% endif %}">
+                                <div class="section-heading compact">
+                                    <span class="step-badge">2</span>
+                                    <div>
+                                        <h3>대상 추가</h3>
+                                        <p>현재 선택된 그룹에만 추가할 수 있습니다.</p>
+                                    </div>
+                                </div>
+
+                                <div class="field-block">
+                                    <label class="form-label small-label">직접 추가</label>
+                                    <form method="post" action="{{ url_for('custom_groups.add_custom_target_route') }}" class="stack-form add-form js-ajax-target-form">
+                                        <input type="hidden" name="custom_group" value="{{ page.active_custom_group }}">
+                                        <input type="text" class="form-control" name="target_name" placeholder="부서명, 팀명, 이름을 입력하세요" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>
+                                        <button type="submit" class="btn btn-outline-primary" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>대상 추가</button>
+                                    </form>
+                                </div>
+
+                                <div class="field-block">
+                                    <label class="form-label small-label">엑셀로 일괄 등록</label>
+                                    <div class="upload-box compact">
+                                        <div class="upload-note">엑셀 첫 번째 열에 추가할 대상 리스트를 입력해 주세요.</div>
+                                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('custom_groups.download_custom_targets_template') }}">엑셀 서식 다운로드</a>
+                                        <form method="post" action="{{ url_for('custom_groups.import_custom_targets_route') }}" enctype="multipart/form-data" class="upload-form js-ajax-target-form">
+                                            <input type="hidden" name="custom_group" value="{{ page.active_custom_group }}">
+                                            <input type="file" class="form-control" id="targets_excel" name="targets_excel" accept=".xlsx" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>
+                                            <div class="selected-file-list" id="selected-excel-file">선택된 파일이 없습니다.</div>
+                                            <div class="upload-options">
+                                                <label class="checkbox-inline">
+                                                    <input type="checkbox" name="skip_header" data-group-required="true" checked {% if not page.active_custom_group %}disabled{% endif %}>
+                                                    첫 행 헤더 제외
+                                                </label>
+                                                <button type="submit" class="btn btn-outline-primary" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>엑셀 등록</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="management-card management-list-card {% if not page.active_custom_group %}is-disabled{% endif %}">
+                                <div class="section-heading compact">
+                                    <span class="step-badge">3</span>
+                                    <div>
+                                        <h3>대상 목록</h3>
+                                        <p>체크한 대상은 하단 버튼으로 한 번에 삭제합니다.</p>
+                                    </div>
+                                </div>
+
+                                <div class="selection-summary modal-summary">
+                                    <span>등록 <strong id="group-registered-count">{{ page.available_targets|length }}</strong> · 선택 <strong id="group-delete-selected-count">0</strong></span>
+                                </div>
+
+                                <div class="search-box modal-search">
+                                    <i class="bi bi-search"></i>
+                                    <input type="search" id="group-target-search" placeholder="대상 검색" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>
+                                </div>
+
+                                <form method="post" action="{{ url_for('custom_groups.delete_custom_target_route') }}" id="group-target-delete-form" class="js-ajax-target-form">
+                                    <input type="hidden" name="custom_group" value="{{ page.active_custom_group }}">
+                                    <div class="modal-batch-actions">
+                                        <div class="tool-row">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="group-select-visible">전체선택</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="group-clear-visible">전체해제</button>
+                                            <button type="button" class="btn btn-sm btn-link px-0" id="group-reset-selection">선택초기화</button>
+                                        </div>
+                                        <button type="submit" class="btn btn-outline-danger" id="group-delete-selected-button" data-group-required="true" {% if not page.active_custom_group %}disabled{% endif %}>
+                                            선택 항목 삭제
+                                        </button>
+                                    </div>
+
+                                    <div class="management-list" id="group-target-list">
+                                        {% for target_name in page.available_targets %}
+                                            <label class="management-row management-row-check" data-target-name="{{ target_name }}">
+                                                <input
+                                                    class="form-check-input group-delete-checkbox"
+                                                    type="checkbox"
+                                                    name="delete_target_name"
+                                                    value="{{ target_name }}"
+                                                    data-group-required="true"
+                                                    {% if not page.active_custom_group %}disabled{% endif %}
+                                                >
+                                                <div class="management-label">
+                                                    <span class="dot"></span>
+                                                    <span>{{ target_name }}</span>
+                                                </div>
+                                            </label>
+                                        {% else %}
+                                            <div class="modal-empty">
+                                                {% if page.active_custom_group %}
+                                                    등록된 대상이 없습니다.
+                                                {% else %}
+                                                    그룹을 선택하면 대상 목록이 표시됩니다.
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </form>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const folderInput = document.getElementById('folder_path');
+        const folderCard = document.getElementById('folder-card');
+        const scanButton = document.getElementById('scan-button');
+        const targetSearch = document.getElementById('target-search');
+        let targetRows = Array.from(document.querySelectorAll('.target-row'));
+        const groupTargetSearch = document.getElementById('group-target-search');
+        let groupTargetRows = Array.from(document.querySelectorAll('#group-target-list .management-row'));
+        let groupDeleteCheckboxes = Array.from(document.querySelectorAll('.group-delete-checkbox'));
+        let candidateCheckboxes = Array.from(document.querySelectorAll('.candidate-checkbox'));
+        const selectVisibleButton = document.getElementById('select-visible');
+        const clearVisibleButton = document.getElementById('clear-visible');
+        const resetSelectionButton = document.getElementById('reset-selection');
+        const groupSelectVisibleButton = document.getElementById('group-select-visible');
+        const groupClearVisibleButton = document.getElementById('group-clear-visible');
+        const groupResetSelectionButton = document.getElementById('group-reset-selection');
+        const groupDeleteSelectedButton = document.getElementById('group-delete-selected-button');
+        const groupDeleteSelectedCountText = document.getElementById('group-delete-selected-count');
+        let appliedTargetCount = Number(document.body.dataset.appliedCount || 0);
+        const refreshSelectionCountButton = document.getElementById('refresh-selection-count');
+        const registeredCountText = document.getElementById('registered-count');
+        const selectedCountText = document.getElementById('selected-count');
+        const groupManagementModalEl = document.getElementById('groupManagementModal');
+        const groupManagementModal = groupManagementModalEl ? bootstrap.Modal.getOrCreateInstance(groupManagementModalEl) : null;
+        const groupStateUrl = groupManagementModalEl?.dataset.stateUrl || '';
+        const targetTypeInput = document.getElementById('target_type');
+        const customGroupHiddenInput = document.getElementById('custom_group');
+        const customGroupSelect = document.getElementById('custom-group-select');
+        const modalCustomGroupSelect = document.getElementById('modal-custom-group-select');
+        const modalSelectedGroupStrong = document.querySelector('.selected-group-name strong');
+        const modalGroupStatusValue = document.querySelector('.group-status-value');
+        const modalRegisteredCountText = document.getElementById('group-registered-count');
+        const targetList = document.getElementById('target-list');
+        const modalTargetList = document.getElementById('group-target-list');
+        const excelFileInput = document.getElementById('targets_excel');
+        const excelFileNameText = document.getElementById('selected-excel-file');
+        const ajaxGroupForms = Array.from(document.querySelectorAll('.js-ajax-group-form'));
+        const ajaxTargetForms = Array.from(document.querySelectorAll('.js-ajax-target-form'));
+        let folderFileNames = [];
+
+        function ensureFolderFilesJsonInput() {
+            let hiddenInput = document.getElementById('folder_files_json');
+            if (!hiddenInput) {
+                hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.id = 'folder_files_json';
+                hiddenInput.name = 'folder_files_json';
+                document.getElementById('workspace-form')?.append(hiddenInput);
+            }
+            return hiddenInput;
+        }
+
+        function readSelectedFolderFileNames() {
+            const hiddenInput = ensureFolderFilesJsonInput();
+            if (!hiddenInput.value.trim()) {
+                return [];
+            }
+            try {
+                const parsed = JSON.parse(hiddenInput.value);
+                return Array.isArray(parsed)
+                    ? parsed.map((value) => String(value).trim()).filter(Boolean)
+                    : [];
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function setSelectedFolderFiles(fileNames, folderLabel) {
+            folderFileNames = Array.from(new Set(fileNames.map((value) => String(value).trim()).filter(Boolean)));
+            ensureFolderFilesJsonInput().value = JSON.stringify(folderFileNames);
+            if (folderInput) {
+                folderInput.value = folderLabel || '';
+            }
+            updateFolderState();
+        }
+
+        function updateSelectedExcelFilePreview() {
+            if (!excelFileNameText) {
+                return;
+            }
+            const file = excelFileInput?.files?.[0];
+            excelFileNameText.textContent = file ? file.name : '선택된 파일이 없습니다.';
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function getAppliedTargetNames() {
+            return Array.from(document.querySelectorAll('#workspace-form input[name="applied_targets"]')).map((input) => input.value);
+        }
+
+        function isMyGroupSelectionView() {
+            return targetTypeInput?.value === '내그룹';
+        }
+
+        function setAppliedTargetNames(targetNames) {
+            const workspaceForm = document.getElementById('workspace-form');
+            if (!workspaceForm) {
+                return;
+            }
+            workspaceForm.querySelectorAll('input[name="applied_targets"]').forEach((input) => input.remove());
+            targetNames.forEach((targetName) => {
+                const hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'applied_targets';
+                hiddenInput.value = targetName;
+                workspaceForm.append(hiddenInput);
+            });
+        }
+
+        function renderGroupOptions(groupNames, activeGroup) {
+            const optionHtml = [
+                `<option value=""${activeGroup ? '' : ' selected'}>그룹을 선택하세요</option>`,
+                ...groupNames.map((groupName) => {
+                    const selected = groupName === activeGroup ? ' selected' : '';
+                    return `<option value="${escapeHtml(groupName)}"${selected}>${escapeHtml(groupName)}</option>`;
+                }),
+            ].join('');
+
+            if (customGroupSelect) {
+                customGroupSelect.innerHTML = optionHtml;
+                customGroupSelect.value = activeGroup || '';
+            }
+
+            if (modalCustomGroupSelect) {
+                modalCustomGroupSelect.innerHTML = optionHtml;
+                modalCustomGroupSelect.value = activeGroup || '';
+            }
+        }
+
+        function renderSidebarTargets(targets, selectedNames, activeGroup = '') {
+            if (!targetList) {
+                return;
+            }
+
+            const selectedSet = new Set(selectedNames);
+            const disabled = activeGroup ? '' : ' disabled';
+            targetList.innerHTML = targets.length
+                ? targets
+                      .map((targetName) => {
+                          const checked = selectedSet.has(targetName) ? ' checked' : '';
+                          return `
+                              <label class="target-row" data-target-name="${escapeHtml(targetName)}">
+                                  <input class="form-check-input candidate-checkbox" type="checkbox" name="candidate_targets" value="${escapeHtml(targetName)}"${checked}${disabled}>
+                                  <span>${escapeHtml(targetName)}</span>
+                              </label>
+                          `;
+                      })
+                      .join('')
+                : `
+                    <div class="modal-empty">
+                        ${activeGroup ? '등록된 대상이 없습니다.' : '먼저 내그룹을 선택해 주세요.'}
+                    </div>
+                `;
+
+            targetRows = Array.from(targetList.querySelectorAll('.target-row'));
+            candidateCheckboxes = Array.from(targetList.querySelectorAll('.candidate-checkbox'));
+        }
+
+        function renderModalTargets(targets) {
+            if (!modalTargetList) {
+                return;
+            }
+
+            if (modalRegisteredCountText) {
+                modalRegisteredCountText.textContent = String(targets.length);
+            }
+
+            modalTargetList.innerHTML = targets.length
+                ? targets
+                      .map((targetName) => {
+                          return `
+                              <label class="management-row management-row-check" data-target-name="${escapeHtml(targetName)}">
+                                  <input class="form-check-input group-delete-checkbox" type="checkbox" name="delete_target_name" value="${escapeHtml(targetName)}" data-group-required="true">
+                                  <div class="management-label">
+                                      <span class="dot"></span>
+                                      <span>${escapeHtml(targetName)}</span>
+                                  </div>
+                              </label>
+                          `;
+                      })
+                      .join('')
+                : `
+                    <div class="modal-empty">
+                        등록된 대상이 없습니다.
+                    </div>
+                `;
+
+            groupTargetRows = Array.from(modalTargetList.querySelectorAll('.management-row'));
+            groupDeleteCheckboxes = Array.from(modalTargetList.querySelectorAll('.group-delete-checkbox'));
+            groupDeleteCheckboxes.forEach((checkbox) => {
+                checkbox.addEventListener('change', updateGroupDeleteSummary);
+            });
+            updateGroupDeleteSummary();
+        }
+
+        function updateGroupActionForms(activeGroup) {
+            groupManagementModalEl?.querySelectorAll('input[name="custom_group"]').forEach((input) => {
+                input.value = activeGroup;
+            });
+            groupManagementModalEl?.querySelectorAll('input[name="delete_group_name"]').forEach((input) => {
+                input.value = activeGroup;
+            });
+
+            const renameInput = groupManagementModalEl?.querySelector('input[name="new_group_name"]');
+            if (renameInput instanceof HTMLInputElement) {
+                renameInput.value = activeGroup;
+                renameInput.placeholder = activeGroup ? '변경할 그룹명을 입력하세요' : '먼저 그룹을 선택해 주세요';
+            }
+        }
+
+        function updateModalDisabledContainers(activeGroup) {
+            const shouldDisable = !activeGroup;
+            const selectedGroupCard = groupManagementModalEl?.querySelector('.management-stack .subcard:nth-of-type(2)');
+            selectedGroupCard?.classList.toggle('is-disabled', shouldDisable);
+            groupManagementModalEl?.querySelectorAll('.management-card:not(.management-stack)').forEach((card) => {
+                card.classList.toggle('is-disabled', shouldDisable);
+            });
+        }
+
+        function setSidebarGroupControlsEnabled(activeGroup) {
+            if (!customGroupSelect) {
+                return;
+            }
+            const shouldEnable = Boolean(activeGroup);
+            [targetSearch, selectVisibleButton, clearVisibleButton, resetSelectionButton].forEach((control) => {
+                if (control) {
+                    control.disabled = !shouldEnable;
+                }
+            });
+            document.querySelector('.apply-button')?.toggleAttribute('disabled', !shouldEnable);
+        }
+
+        function scheduleToastDismiss(alertElement, delay = 2800) {
+            window.setTimeout(() => {
+                if (!alertElement.isConnected) {
+                    return;
+                }
+                alertElement.classList.remove('show');
+                window.setTimeout(() => {
+                    if (alertElement.isConnected) {
+                        alertElement.remove();
+                    }
+                }, 180);
+            }, delay);
+        }
+
+        function ensureToastArea() {
+            let toastArea = document.querySelector('.toast-area');
+            if (!toastArea) {
+                toastArea = document.createElement('div');
+                toastArea.className = 'toast-area';
+                const workspaceForm = document.getElementById('workspace-form');
+                workspaceForm?.before(toastArea);
+            }
+            return toastArea;
+        }
+
+        function normalizeToastCategory(category) {
+            if (category === 'warning') {
+                return 'info';
+            }
+            if (category === 'danger' || category === 'success' || category === 'info') {
+                return category;
+            }
+            return 'info';
+        }
+
+        function showToast(message, category) {
+            if (!message) {
+                return;
+            }
+
+            const toastArea = ensureToastArea();
+            toastArea.innerHTML = '';
+
+            const alertBox = document.createElement('div');
+            alertBox.className = `alert alert-${normalizeToastCategory(category)} alert-dismissible fade show`;
+            alertBox.role = 'alert';
+            alertBox.innerHTML = `${escapeHtml(message)}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기"></button>`;
+            toastArea.append(alertBox);
+            scheduleToastDismiss(alertBox);
+        }
+
+        function updateSelectionSummary() {
+            const checkedCount = candidateCheckboxes.filter((checkbox) => checkbox.checked).length;
+            if (registeredCountText) {
+                registeredCountText.textContent = String(candidateCheckboxes.length);
+            }
+            if (selectedCountText) {
+                selectedCountText.textContent = String(checkedCount);
+            }
+            appliedTargetCount = getAppliedTargetNames().length;
+            if (scanButton) {
+                scanButton.disabled = !(appliedTargetCount > 0 && folderInput.value.trim().length > 0);
+            }
+        }
+
+        function updateGroupDeleteSummary() {
+            const checkedCount = groupDeleteCheckboxes.filter((checkbox) => checkbox.checked).length;
+            if (groupDeleteSelectedCountText) {
+                groupDeleteSelectedCountText.textContent = String(checkedCount);
+            }
+            if (groupDeleteSelectedButton) {
+                groupDeleteSelectedButton.disabled = checkedCount === 0;
+            }
+        }
+
+        function setGroupDependentControlsEnabled(activeGroup) {
+            const shouldEnable = Boolean(activeGroup);
+            document.querySelectorAll('[data-group-required="true"]').forEach((control) => {
+                control.disabled = !shouldEnable;
+            });
+            updateGroupRequiredControlTitles(activeGroup);
+            if (!shouldEnable && excelFileInput) {
+                excelFileInput.value = '';
+            }
+            updateSelectedExcelFilePreview();
+            updateSelectedGroupNote(activeGroup);
+            updateGroupActionForms(activeGroup);
+            updateModalDisabledContainers(activeGroup);
+        }
+
+        function setModalGroupDependentControlsEnabled(activeGroup) {
+            const shouldEnable = Boolean(activeGroup);
+            groupManagementModalEl?.querySelectorAll('[data-group-required="true"]').forEach((control) => {
+                control.disabled = !shouldEnable;
+            });
+            if (!shouldEnable && excelFileInput) {
+                excelFileInput.value = '';
+            }
+            updateSelectedExcelFilePreview();
+            updateSelectedGroupNote(activeGroup);
+            updateGroupActionForms(activeGroup);
+            updateModalDisabledContainers(activeGroup);
+        }
+
+        function updateFolderState() {
+            const folderPath = folderInput.value.trim();
+            const hasFolder = folderPath.length > 0;
+            const fileCount = readSelectedFolderFileNames().length;
+
+            folderCard.classList.toggle('valid', hasFolder);
+            folderCard.innerHTML = hasFolder
+                ? `
+                    <i class="bi bi-check-circle-fill"></i>
+                    <div>
+                        <strong>폴더가 선택되었습니다.</strong>
+                        <span>선택된 폴더: ${escapeHtml(folderPath)}${fileCount ? ` · ${fileCount}개 파일` : ''}</span>
+                    </div>
+                `
+                : `
+                    <i class="bi bi-folder"></i>
+                    <div>
+                        <strong>폴더가 아직 선택되지 않았습니다.</strong>
+                        <span>폴더 선택 버튼으로 지정하거나 경로를 직접 입력해 주세요.</span>
+                    </div>
+                `;
+
+            if (scanButton) {
+                scanButton.disabled = !(appliedTargetCount > 0 && hasFolder);
+            }
+        }
+
+        function updateVisibleSelection(checked) {
+            targetRows
+                .filter((row) => row.style.display !== 'none')
+                .forEach((row) => {
+                    const checkbox = row.querySelector('.candidate-checkbox');
+                    if (checkbox) {
+                        checkbox.checked = checked;
+                    }
+                });
+            updateSelectionSummary();
+        }
+
+        function updateVisibleGroupSelection(checked) {
+            groupTargetRows
+                .filter((row) => row.style.display !== 'none')
+                .forEach((row) => {
+                    const checkbox = row.querySelector('.group-delete-checkbox');
+                    if (checkbox) {
+                        checkbox.checked = checked;
+                    }
+            });
+            updateGroupDeleteSummary();
+        }
+
+        excelFileInput?.addEventListener('change', updateSelectedExcelFilePreview);
+
+        function applyGroupState(state, { clearInspection = false } = {}) {
+            const activeGroup = state.active_custom_group || '';
+            const groupNames = Array.isArray(state.custom_group_names) ? state.custom_group_names : [];
+            const targets = Array.isArray(state.available_targets) ? state.available_targets : [];
+            const nextAppliedTargets = clearInspection ? [] : getAppliedTargetNames().filter((targetName) => targets.includes(targetName));
+            const shouldUpdateSidebar = isMyGroupSelectionView();
+
+            if (customGroupHiddenInput && shouldUpdateSidebar) {
+                customGroupHiddenInput.value = activeGroup;
+            }
+
+            renderGroupOptions(groupNames, activeGroup);
+            if (shouldUpdateSidebar) {
+                renderSidebarTargets(targets, nextAppliedTargets, activeGroup);
+                setSidebarGroupControlsEnabled(activeGroup);
+                setAppliedTargetNames(nextAppliedTargets);
+            }
+            renderModalTargets(targets);
+            setGroupDependentControlsEnabled(activeGroup);
+            updateGroupActionForms(activeGroup);
+
+            if (modalSelectedGroupStrong) {
+                modalSelectedGroupStrong.textContent = activeGroup || '그룹을 선택해 주세요';
+            }
+            if (modalGroupStatusValue) {
+                modalGroupStatusValue.textContent = `${targets.length}개`;
+            }
+
+            if (groupTargetSearch) {
+                groupTargetSearch.value = '';
+            }
+            if (targetSearch) {
+                targetSearch.value = '';
+            }
+            if (shouldUpdateSidebar) {
+                targetRows.forEach((row) => {
+                    row.style.display = '';
+                });
+            }
+            groupTargetRows.forEach((row) => {
+                row.style.display = '';
+            });
+
+            if (shouldUpdateSidebar) {
+                updateSelectionSummary();
+            }
+            updateGroupDeleteSummary();
+            updateFolderState();
+            updateSelectedExcelFilePreview();
+        }
+
+        async function fetchGroupState(groupName) {
+            if (!groupStateUrl) {
+                return;
+            }
+
+            const url = new URL(groupStateUrl, window.location.origin);
+            if (groupName) {
+                url.searchParams.set('custom_group', groupName);
+            }
+
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                if (!response.ok) {
+                    return;
+                }
+                const state = await response.json();
+                applyGroupState(state, { clearInspection: true });
+            } catch (error) {
+                console.error('그룹 상태를 불러오는 중 오류가 발생했습니다.', error);
+            }
+        }
+
+        async function submitAjaxForm(form) {
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: new FormData(form),
+                });
+                if (!response.ok) {
+                    return;
+                }
+                const state = await response.json();
+                applyGroupState(state, { clearInspection: false });
+                showToast(state.message || '처리가 완료되었습니다.', state.message_category || 'success');
+                groupManagementModal?.show();
+            } catch (error) {
+                console.error('요청 처리 중 오류가 발생했습니다.', error);
+            }
+        }
+
+        targetSearch?.addEventListener('input', () => {
+            const query = targetSearch.value.trim().toLowerCase();
+            targetRows.forEach((row) => {
+                const name = row.dataset.targetName?.toLowerCase() || '';
+                row.style.display = name.includes(query) ? '' : 'none';
+            });
+        });
+
+        groupTargetSearch?.addEventListener('input', () => {
+            const query = groupTargetSearch.value.trim().toLowerCase();
+            groupTargetRows.forEach((row) => {
+                const name = row.dataset.targetName?.toLowerCase() || '';
+                row.style.display = name.includes(query) ? '' : 'none';
+            });
+        });
+
+        selectVisibleButton?.addEventListener('click', () => {
+            updateVisibleSelection(true);
+        });
+        clearVisibleButton?.addEventListener('click', () => {
+            updateVisibleSelection(false);
+        });
+        resetSelectionButton?.addEventListener('click', () => {
+            candidateCheckboxes.forEach((checkbox) => {
+                checkbox.checked = false;
+            });
+            updateSelectionSummary();
+        });
+
+        groupSelectVisibleButton?.addEventListener('click', () => {
+            updateVisibleGroupSelection(true);
+        });
+        groupClearVisibleButton?.addEventListener('click', () => {
+            updateVisibleGroupSelection(false);
+        });
+        groupResetSelectionButton?.addEventListener('click', () => {
+            groupDeleteCheckboxes.forEach((checkbox) => {
+                checkbox.checked = false;
+            });
+            updateGroupDeleteSummary();
+        });
+
+        targetList?.addEventListener('change', (event) => {
+            if (event.target instanceof HTMLInputElement && event.target.classList.contains('candidate-checkbox')) {
+                updateSelectionSummary();
+            }
+        });
+
+        modalTargetList?.addEventListener('change', (event) => {
+            if (event.target instanceof HTMLInputElement && event.target.classList.contains('group-delete-checkbox')) {
+                updateGroupDeleteSummary();
+            }
+        });
+
+        folderInput?.addEventListener('input', () => {
+            if (folderFileNames.length > 0) {
+                folderFileNames = [];
+                const hiddenInput = ensureFolderFilesJsonInput();
+                hiddenInput.value = '';
+            }
+            updateFolderState();
+        });
+        refreshSelectionCountButton?.addEventListener('click', updateSelectionSummary);
+
+        document.getElementById('folder-picker-button')?.addEventListener('click', openFolderPicker);
+
+        customGroupSelect?.addEventListener('change', () => {
+            fetchGroupState(customGroupSelect.value);
+        });
+
+        modalCustomGroupSelect?.addEventListener('change', () => {
+            fetchGroupState(modalCustomGroupSelect.value);
+        });
+
+        groupManagementModalEl?.addEventListener('shown.bs.modal', () => {
+            if (modalCustomGroupSelect) {
+                modalCustomGroupSelect.value = '';
+            }
+            setModalGroupDependentControlsEnabled('');
+            updateGroupActionForms('');
+            updateSelectedGroupNote('');
+            if (modalSelectedGroupStrong) {
+                modalSelectedGroupStrong.textContent = '그룹을 선택해 주세요';
+            }
+            if (modalGroupStatusValue) {
+                modalGroupStatusValue.textContent = '0개';
+            }
+            renderModalTargets([]);
+        });
+
+        ajaxGroupForms.forEach((form) => {
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                submitAjaxForm(form);
+            });
+        });
+
+        ajaxTargetForms.forEach((form) => {
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                submitAjaxForm(form);
+            });
+        });
+
+        async function collectDirectoryFiles(directoryHandle, prefix = '') {
+            const collected = [];
+            for await (const [entryName, entryHandle] of directoryHandle.entries()) {
+                const relativeName = prefix ? `${prefix}/${entryName}` : entryName;
+                if (entryHandle.kind === 'file') {
+                    collected.push(relativeName);
+                } else if (entryHandle.kind === 'directory') {
+                    collected.push(...await collectDirectoryFiles(entryHandle, relativeName));
+                }
+            }
+            return collected;
+        }
+
+        async function openFolderPicker() {
+            try {
+                if (window.showDirectoryPicker) {
+                    const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+                    const fileNames = await collectDirectoryFiles(directoryHandle);
+                    setSelectedFolderFiles(fileNames, directoryHandle.name);
+                    return;
+                }
+
+                const fallbackInput = document.createElement('input');
+                fallbackInput.type = 'file';
+                fallbackInput.multiple = true;
+                fallbackInput.setAttribute('webkitdirectory', '');
+                fallbackInput.setAttribute('directory', '');
+                fallbackInput.style.display = 'none';
+                fallbackInput.addEventListener('change', () => {
+                    const files = Array.from(fallbackInput.files || []);
+                    if (!files.length) {
+                        fallbackInput.remove();
+                        return;
+                    }
+                    const fileNames = files.map((file) => file.webkitRelativePath || file.name);
+                    const folderLabel = (fileNames[0] || '').split('/')[0] || '선택된 폴더';
+                    setSelectedFolderFiles(fileNames, folderLabel);
+                    fallbackInput.remove();
+                });
+                document.body.append(fallbackInput);
+                fallbackInput.click();
+            } catch (error) {
+                console.error('?? ?? ? ??? ??????.', error);
+            }
+        }
+        function syncInitialState() {
+            const activeGroup = customGroupHiddenInput?.value || '';
+            folderFileNames = readSelectedFolderFileNames();
+            renderGroupOptions(Array.from(document.querySelectorAll('#modal-custom-group-select option')).slice(1).map((option) => option.textContent || '').filter(Boolean), activeGroup);
+            setGroupDependentControlsEnabled(activeGroup);
+            updateSelectionSummary();
+            updateGroupDeleteSummary();
+            updateFolderState();
+            updateSelectedExcelFilePreview();
+        }
+
+        syncInitialState();
+
+        function updateSelectedGroupNote(activeGroup) {
+            const cards = document.querySelectorAll('#groupManagementModal .management-card');
+            const targetAddCard = cards.length > 1 ? cards[1] : null;
+            if (!targetAddCard) {
+                return;
+            }
+
+            let note = targetAddCard.querySelector('#selected-group-inline');
+            if (!note) {
+                note = document.createElement('div');
+                note.id = 'selected-group-inline';
+                note.className = 'selected-group-inline';
+                note.innerHTML = '선택 그룹 : <strong></strong>';
+                const firstFieldBlock = targetAddCard.querySelector('.field-block');
+                firstFieldBlock?.prepend(note);
+            }
+
+            const strong = note.querySelector('strong');
+            if (strong) {
+                strong.textContent = activeGroup || '그룹을 선택해 주세요.';
+            }
+        }
+
+        function updateGroupRequiredControlTitles(activeGroup) {
+            const hasGroup = Boolean(activeGroup);
+            document.querySelectorAll('[data-group-required="true"]').forEach((control) => {
+                if (hasGroup) {
+                    control.removeAttribute('title');
+                } else {
+                    control.setAttribute('title', '먼저 그룹을 선택해 주세요.');
+                }
+            });
+        }
+
+        (function polishUi() {
+            const brandCopy = document.querySelector('.brand-copy');
+            if (brandCopy) {
+                const title = brandCopy.querySelector('h1');
+                const subtitle = brandCopy.querySelector('p, span');
+                if (title) {
+                    title.textContent = '📋 취합체커';
+                }
+                if (subtitle) {
+                    subtitle.textContent = '제출 현황을 한눈에 확인하세요.';
+                }
+            }
+
+            const folderPickerButton = document.getElementById('folder-picker-button');
+            if (folderPickerButton) {
+                folderPickerButton.innerHTML = '<span>폴더</span><span>선택</span>';
+                folderPickerButton.title = '폴더 선택';
+            }
+
+            if (folderInput) {
+                folderInput.placeholder = '폴더 경로를 입력하거나 폴더 버튼을 누르세요.';
+            }
+
+            const initialAlerts = Array.from(document.querySelectorAll('.toast-area .alert'));
+            if (initialAlerts.length > 1) {
+                initialAlerts.slice(0, -1).forEach((alertElement) => alertElement.remove());
+            }
+            document.querySelectorAll('.toast-area .alert').forEach((alertElement) => {
+                alertElement.classList.add('alert-dismissible', 'fade', 'show');
+                if (alertElement.classList.contains('alert-warning')) {
+                    alertElement.classList.remove('alert-warning');
+                    alertElement.classList.add('alert-info');
+                }
+                if (!alertElement.querySelector('.btn-close')) {
+                    const closeButton = document.createElement('button');
+                    closeButton.type = 'button';
+                    closeButton.className = 'btn-close';
+                    closeButton.setAttribute('data-bs-dismiss', 'alert');
+                    closeButton.setAttribute('aria-label', '닫기');
+                    alertElement.append(closeButton);
+                }
+                scheduleToastDismiss(alertElement);
+            });
+
+            updateGroupRequiredControlTitles(customGroupHiddenInput?.value || '');
+            updateSelectedGroupNote(customGroupHiddenInput?.value || '');
+            updateFolderState();
+        })();
+    </script>
+</body>
+</html>
